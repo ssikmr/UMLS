@@ -17,7 +17,7 @@ class Doc2VecDataset(Word2VecDataset):
                epochs=1,
                batch_size=32,
                max_vocab_size=0,
-               min_count=10,
+               min_count=1,
                sample=1e-3,
                window_size=5,
                dbow_train_words=False,
@@ -43,6 +43,7 @@ class Doc2VecDataset(Word2VecDataset):
       dm_concat: bool scalar, whether to concatenate word and document vectors
         instead of averaging them in dm architecture.
     """
+    print("MIN_COUNT_DOC_INIT = ", min_count)
     super(Doc2VecDataset, self).__init__(
         arch=arch, 
         algm=algm, 

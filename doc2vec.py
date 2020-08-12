@@ -1,7 +1,8 @@
 import tensorflow as tf
 
 from word2vec.word2vec import Word2VecModel
-
+from umls_pre_process import * # TRANS-H 
+import numpy as np
 
 class Doc2VecModel(Word2VecModel):
   """Doc2VecModel."""
@@ -17,7 +18,9 @@ class Doc2VecModel(Word2VecModel):
                add_bias=True,
                random_seed=0,
                dm_concat=True,
-               window_size=5):
+               window_size=5,
+               delta = 0.25,
+               gamma = 0.2 ): # TODO Add delta, gamma in FLAGS
     """Constructor.
 
     Args:
@@ -37,6 +40,7 @@ class Doc2VecModel(Word2VecModel):
         instead of averaging them in dm architecture.
       window_size: int scalar, num of words on the left or right side of
         target word within a window.
+      delta: Weightage of TransH Loss
     """
     super(Doc2VecModel, self).__init__(arch, algm, embed_size, batch_size,
         negatives, power, alpha, min_alpha, add_bias, random_seed)
@@ -45,6 +49,11 @@ class Doc2VecModel(Word2VecModel):
 
     self._syn0_w = None
     self._syn0_d = None
+    self.delta = delta 
+    self.gamma = gamma
+    self._rel_w = None
+    self._rel_d = None
+
 
   @property
   def syn0_w(self):
@@ -53,6 +62,15 @@ class Doc2VecModel(Word2VecModel):
   @property
   def syn0_d(self):
     return self._syn0_d
+
+  @property
+  def rel_w(self):
+    return self._rel_w
+
+  @property
+  def rel_d(self):
+    return self._rel_d
+
 
   def get_save_list(self):
     """Returns the list of variables to be saved by tf.train.Saver()."""
@@ -75,10 +93,12 @@ class Doc2VecModel(Word2VecModel):
     Returns:
       loss: float tensor, cross entropy loss. 
     """
-    syn0_w, syn0_d, syn1, biases = self._create_embeddings(
+    syn0_w, syn0_d, syn1, biases, rel_w, rel_d = self._create_embeddings(
         len(unigram_counts), num_docs)
     syn0 = tf.concat([syn0_w, syn0_d], axis=0)
     self._syn0_w, self._syn0_d = syn0_w, syn0_d
+    self._rel_w, self._rel_d = rel_w, rel_d # Added
+
     with tf.variable_scope(scope, 'Loss', [inputs, labels, syn0, syn1, biases]):
       if self._algm == 'negative_sampling':
         loss = self._negative_sampling_loss(
@@ -86,9 +106,84 @@ class Doc2VecModel(Word2VecModel):
       elif self._algm == 'hierarchical_softmax':
         loss = self._hierarchical_softmax_loss(
             inputs, labels, syn0, syn1, biases)
-      return loss
+      t_loss = tf.reduce_mean(loss, 1)
+        
+
+      # Add TransH_loss
+      total_loss = ((1.0 - self.delta) * t_loss) + (self.delta * self._transH_loss(inputs))
+
+      print("#" *10, "TOTAL_LOSS = ", total_loss)
+
+      return total_loss
+
+
+
+  def _transH_loss(self, inputs):
+    '''
+    Args:
+      inputs: 
+
+    Returns: 
+      Trans-H loss for f(h,r,t) and f(h, r, t')
+
+    '''
     
-  def _create_embeddings(self, vocab_size, num_docs, scope=None):
+    print("---INPUTS = ", inputs)
+
+    rel_count_table = tf.contrib.lookup.HashTable(
+          tf.contrib.lookup.KeyValueTensorInitializer(tf.constant(list(rel_count.keys()), dtype=tf.int64)
+            , tf.constant(list(rel_count.values()), dtype=tf.int64 )), -1
+        )
+    out = rel_count_table.lookup(inputs)
+
+    # rel_tuple_table = tf.contrib.lookup.HashTable(
+    #       tf.contrib.lookup.KeyValueTensorInitializer(tf.constant(list(rel_tuple.keys()), dtype=tf.int64)
+    #         , tf.ragged.constant(list(rel_tuple.values()) )), -1
+    #     )
+
+    # print("____ OUTPUT = ", rel_tuple_table)
+
+    def _loss_util(doc_id):
+      count = rel_count_table.lookup(doc_id)
+      print("COUNT = ", count, doc_id)
+      try:
+        # rand_i = tf.random.uniform((1,), 0, count, tf.int64)
+        
+        tup = tf.constant([1, 2, 3], tf.int64)
+        hi = tup[0]
+        ri = tup[1]
+        ti = tup[2]
+
+        # tj = tf.random.uniform((1,), 0, num_codes -1, tf.int64)
+        tj = tup[2]
+
+        
+        e_hi = tf.gather(self.syn0_d, hi)
+        e_ti = tf.gather(self.syn0_d, ti)
+        e_tj = tf.gather(self.syn0_d, tj)
+      
+        w_r = tf.gather(self._rel_w, ri)
+        d_r = tf.gather(self._rel_d, ri)
+        print("-----SHAPES OF h, wr, dr= ", e_hi.shape, w_r.shape, d_r.shape)
+       
+        _f_hrt1 = tf.norm(e_hi - tf.multiply(tf.tensordot(w_r, e_hi, 1) , w_r) \
+          + d_r  - e_ti + tf.multiply(tf.tensordot(w_r, e_ti, 1) , w_r))
+
+        _f_hrt2 = tf.norm(e_hi - tf.multiply(tf.tensordot(w_r, e_hi, 1) , w_r) \
+          + d_r - e_tj + tf.multiply(tf.tensordot(w_r, e_tj, 1) , w_r))
+
+        return tf.maximum(0., self.gamma + _f_hrt1 - _f_hrt2)
+      except:
+        print("----_loss_util_EXCEPT")
+        return 0.0
+
+    _loss = tf.cast(tf.map_fn(_loss_util, tf.squeeze(inputs)), tf.float32)
+
+    print("*" *10, "LOSS = ", _loss)
+
+    return _loss
+    
+  def _create_embeddings(self, vocab_size, num_docs, scope=None): # TODO Relation wr, dr emb matrix
     """Creates initial word and document embedding variables.
 
     Args:
@@ -118,7 +213,13 @@ class Doc2VecModel(Word2VecModel):
       syn1 = tf.get_variable('syn1', initializer=tf.random_uniform([
           syn1_rows, syn1_cols], -0.1, 0.1))
       biases = tf.get_variable('biases', initializer=tf.zeros([syn1_rows]))
-      return syn0_w, syn0_d, syn1, biases
+      # TransH specific
+      rel_w = tf.random_uniform([num_rel, self._embed_size],
+          -0.5/self._embed_size, 0.5/self._embed_size, seed=self._random_seed)
+      rel_d = tf.random_uniform([num_rel, self._embed_size],
+          -0.5/self._embed_size, 0.5/self._embed_size, seed=self._random_seed)
+      return syn0_w, syn0_d, syn1, biases, rel_w, rel_d
+      # return syn0_w, syn0_d, syn1, biases
 
   def _get_inputs_syn0(self, syn0, inputs):
     """Builds the activations of hidden layer given input word and doc 

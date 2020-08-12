@@ -17,16 +17,18 @@ import numpy as np
 from doc2vec import Doc2VecTrainer
 from dataset import Doc2VecDataset
 
+
+
 flags = tf.app.flags
 
 flags.DEFINE_string('arch', 'PV-DBOW', 'Architecture (DBOW or DM).')
 flags.DEFINE_string('algm', 'negative_sampling', 'Training algorithm '
     '(negative_sampling or hierarchical_softmax).')
-flags.DEFINE_integer('epochs', 1, 'Num of epochs to iterate training data.')
+flags.DEFINE_integer('epochs', 4, 'Num of epochs to iterate training data.')
 flags.DEFINE_integer('batch_size', 64, 'Batch size.')
 flags.DEFINE_integer('max_vocab_size', 0, 'Maximum vocabulary size. If > 0, '
     'the top `max_vocab_size` most frequent words are kept in vocabulary.')
-flags.DEFINE_integer('min_count', 10, 'Words whose counts < `min_count` are not'
+flags.DEFINE_integer('min_count', 1, 'Words whose counts < `min_count` are not'
     ' included in the vocabulary.')
 flags.DEFINE_float('sample', 1e-3, 'Subsampling rate.')
 flags.DEFINE_integer('window_size', 5, 'Num of words on the left or right side'
@@ -37,7 +39,7 @@ flags.DEFINE_boolean('dm_concat', True, 'Whether to concatenate word and '
     'document vectors or compute their mean in DM architecture.')
 
 flags.DEFINE_integer('embed_size', 300, 'Length of word vector.')
-flags.DEFINE_integer('negatives', 5, 'Num of negative words to sample.')
+flags.DEFINE_integer('negatives', 8, 'Num of negative words to sample.')
 flags.DEFINE_float('power', 0.75, 'Distortion for negative sampling.')
 flags.DEFINE_float('alpha', 0.025, 'Initial learning rate.')
 flags.DEFINE_float('min_alpha', 0.0001, 'Final learning rate.')
@@ -62,6 +64,8 @@ def main(_):
                            window_size=FLAGS.window_size,
                            dbow_train_words=FLAGS.dbow_train_words,
                            dm_concat=FLAGS.dm_concat)
+
+  print("DOC2VEC FLAG Filename = ", FLAGS.filenames)
   dataset.build_vocab(FLAGS.filenames)
 
   doc2vec = Doc2VecTrainer(arch=FLAGS.arch,

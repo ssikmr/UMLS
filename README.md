@@ -1,3 +1,7 @@
+Last updated: 11th Aug, 2020
+
+Implementation works for PV-DBOW + TransH only
+
 
 Doc2Vec (a.k.a. Paragraph2Vec) is a Word2Vec-inspired, simple yet effective model to obtain real-valued, distributed representation of unlabeled documents (sentences, paragraphs, articles etc.). Here is a tensorflow implementation of Doc2Vec. It allows you to train in both PV-DBOW (distributed bag of words, similar to skip-gram in Word2Vec) and PV-DM (distributed memory, similar to bag-of-words in Word2Vec) architectures. It can also run in inference mode where you only learn the embeddings of unseen documents (not present in the training data) given a trained model.
 
